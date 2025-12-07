@@ -49,7 +49,13 @@ def main():
                     print("⚠️ ALERTA: Integridade quebrada! Mensagem adulterada!")
                     continue
 
-                print(data.decode())
+                decoded = data.decode()
+
+                if "||" in decoded:
+                    msg, tag = decoded.split("||", 1)
+                    print(msg)
+                else:
+                    print(decoded)
 
             except:
                 break
