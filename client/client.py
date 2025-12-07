@@ -1,3 +1,9 @@
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import socket
 import ssl
 import threading
@@ -54,6 +60,13 @@ def main():
 
     while True:
         msg = input("> ")
+
+        if msg.strip().lower() == "/exit":
+            conn.send(b"__EXIT__")
+            print("👋 Você saiu do chat.")
+            conn.close()
+            break
+
         tag = generate_hmac(shared_key, msg)
         conn.send((msg + "||" + tag).encode())
 

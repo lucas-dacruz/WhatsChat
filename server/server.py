@@ -1,6 +1,12 @@
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 import json
+import time
 import socket
-import ssl
 import threading
 import hashlib
 
@@ -64,7 +70,8 @@ def handle_client(conn):
 
     partner = match_user(username)
     while partner is None:
-        partner = match_user(username)
+        time.sleep(0.1)
+        partner = active_pairs.get(username)
 
     conn.send(f"Você está conectado com {partner}".encode())
     p_conn, _ = connections[partner]
@@ -77,6 +84,9 @@ def handle_client(conn):
         try:
             packet = conn.recv(4096).decode()
             if not packet:
+                break
+
+            if packet == "__EXIT__":
                 break
 
             msg, tag = packet.split("||")
@@ -92,6 +102,16 @@ def handle_client(conn):
 
         except:
             break
+
+    if username in active_pairs:
+        partner = active_pairs[username]
+        p_conn, _ = connections.get(partner, (None, None))
+
+    if p_conn:
+        try:
+            p_conn.send(f"⚠️ {username} saiu do chat.".encode())
+        except:
+            pass
 
     print(f"❌ {username} desconectou")
 
