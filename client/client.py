@@ -3,77 +3,119 @@ import sys
 import socket
 import ssl
 import threading
-
-# garantir que crypto seja importado mesmo em subprocesso
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, ROOT)
+from typing import Optional
 
 from crypto.tls_context import create_client_context
 from crypto.dh_key_exchange import generate_keys, generate_shared_key
-from crypto.hmac_utils import generate_hmac
+from crypto.hmac_utils import generate_hmac, verify_hmac
 
 
-def main():
+def listen_messages(conn: ssl.SSLSocket) -> None:
+    """Thread que imprime mensagens recebidas do servidor/par."""
+    while True:
+        try:
+            raw = conn.recv(4096)
+            if not raw:
+                break
+
+            if raw == b"BAD":
+                print("Aviso: integridade da mensagem inválida.")
+                continue
+
+            decoded = raw.decode()
+            
+            if "||" in decoded:
+                # pode vir no formato "user: msg||tag" ou "msg||tag"
+                left, _ = decoded.split("||", 1)
+                print(left)
+            else:
+                print(decoded)
+        except Exception:
+            break
+
+
+def connect_and_wrap() -> Optional[ssl.SSLSocket]:
+    try:
+        ctx = create_client_context()
+        s = socket.socket()
+        return ctx.wrap_socket(s, server_hostname="localhost")
+    except Exception:
+        return None
+
+
+def do_key_exchange(conn: ssl.SSLSocket) -> Optional[int]:
+    """
+    Troca de chaves DH: recebe pub do servidor, envia o nosso e retorna segredo.
+    """
+    priv, pub = generate_keys()
+    try:
+        server_pub_raw = conn.recv(4096).decode()
+        server_pub = int(server_pub_raw)
+    except Exception:
+        return None
+
+    conn.send(str(pub).encode())
+    shared = generate_shared_key(priv, server_pub)
+    return shared
+
+
+def main() -> None:
     username = input("Usuário: ")
     password = input("Senha: ")
 
-    context = create_client_context()
-
-    sock = socket.socket()
-    conn = context.wrap_socket(sock, server_hostname="localhost")
-    conn.connect(("localhost", 5000))
-
-    # LOGIN
-    conn.send(f"{username}:{password}".encode())
-    if conn.recv(4096) != b"OK":
-        print("❌ Login falhou!")
+    conn = connect_and_wrap()
+    if conn is None:
+        print("Não foi possível criar conexão TLS.")
         return
 
-    # DH
-    priv, pub = generate_keys()
-    server_pub = int(conn.recv(4096).decode())
-    conn.send(str(pub).encode())
-    shared_key = generate_shared_key(priv, server_pub)
+    try:
+        conn.connect(("localhost", 5000))
+    except Exception:
+        print("Falha ao conectar ao servidor.")
+        return
 
-    print(conn.recv(4096).decode())  # "Você está conectado com X"
+    # login simples
+    conn.send(f"{username}:{password}".encode())
+    resp = conn.recv(4096)
+    if resp != b"OK":
+        print("Login falhou.")
+        return
 
-    # THREAD PARA RECEBER MENSAGENS
-    def listen():
-        while True:
-            try:
-                data = conn.recv(4096)
-                if not data:
-                    break
+    # handshake DH (recebe pub do servidor, envia o nosso)
+    shared_key = do_key_exchange(conn)
+    if shared_key is None:
+        print("Erro no handshake.")
+        return
 
-                if data == b"BAD":
-                    print("⚠️ ALERTA: Integridade quebrada! Mensagem adulterada!")
-                    continue
+    # receber mensagem de boas-vindas (geralmente info de pareamento)
+    try:
+        welcome = conn.recv(4096).decode()
+        print(welcome)
+    except Exception:
+        pass
 
-                decoded = data.decode()
+    # start listener
+    t = threading.Thread(target=listen_messages, args=(conn,), daemon=True)
+    t.start()
 
-                if "||" in decoded:
-                    msg, tag = decoded.split("||", 1)
-                    print(msg)
-                else:
-                    print(decoded)
-
-            except:
-                break
-
-    threading.Thread(target=listen, daemon=True).start()
-
-    # LOOP DE ENVIO
     while True:
-        msg = input("> ").strip()
+        try:
+            msg = input().strip()
+        except EOFError:
+            msg = "/exit"
 
-        # sair
         if msg == "/exit":
-            conn.send(b"__EXIT__")
-            print("👋 Você saiu do chat.")
-            conn.close()
+            try:
+                conn.send(b"__EXIT__")
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+            print("Encerrando cliente.")
             break
 
-        # comandos
         if msg == "/users":
             conn.send(b"__CMD__:USERS")
             continue
@@ -86,9 +128,14 @@ def main():
             conn.send(b"__CMD__:PARTNER")
             continue
 
-        # mensagem normal
+        # Gera tag HMAC com a chave compartilhada (int -> str encode)
         tag = generate_hmac(shared_key, msg)
-        conn.send((msg + "||" + tag).encode())
+        try:
+            conn.send(f"{msg}||{tag}".encode())
+        except Exception:
+            # se falhar no envio, tenta seguir (comportamento simples)
+            pass
 
 
-main()
+if __name__ == "__main__":
+    main()

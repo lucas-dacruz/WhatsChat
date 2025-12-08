@@ -6,77 +6,112 @@ import hashlib
 DB_PATH = "user_db.json"
 
 
-# ==============================
-# Funções do banco de usuários
-# ==============================
-def load_db():
+# --- Database ---
+
+def load_db() -> dict:
+    """
+    Carrega o banco de usuários a partir do arquivo JSON.
+    Retorna um dicionário vazio caso o arquivo não exista
+    ou não possa ser lido.
+    """
     if not os.path.exists(DB_PATH):
         return {}
-    with open(DB_PATH, "r") as f:
-        return json.load(f)
 
-def save_db(db):
+    try:
+        with open(DB_PATH, "r") as f:
+            return json.load(f)
+    except Exception:
+        # Em caso de erro no arquivo, não interrompe o fluxo do menu.
+        return {}
+
+
+def save_db(db: dict) -> None:
+    """
+    Salva o dicionário de usuários no arquivo JSON.
+    """
     with open(DB_PATH, "w") as f:
         json.dump(db, f, indent=4)
 
-def hash_password(password):
+
+def hash_password(password: str) -> str:
+    """
+    Retorna um hash SHA-256 da senha informada.
+    """
     return hashlib.sha256(password.encode()).hexdigest()
 
 
-# ==============================
-# Registrar usuários
-# ==============================
-def register_user():
+# --- User Management ---
+
+def register_user() -> None:
+    """
+    Processa o fluxo de cadastro de um novo usuário.
+    Valida entrada mínima e evita sobrescrita.
+    """
     db = load_db()
 
     username = input("Novo usuário: ").strip()
-    if username in db:
-        print("❌ Usuário já existe!")
+    if not username:
+        print("Nome inválido.")
         return
 
-    password = input("Senha: ").strip()
-    hashed = hash_password(password)
+    if username in db:
+        print("Usuário já existe.")
+        return
 
-    db[username] = hashed
+    pwd = input("Senha: ").strip()
+    if not pwd:
+        print("Senha inválida.")
+        return
+
+    db[username] = hash_password(pwd)
     save_db(db)
 
-    print(f"✔ Usuário '{username}' registrado com sucesso!")
+    print(f"Usuário '{username}' registrado.")
 
 
-# ==============================
-# Listar usuários
-# ==============================
-def list_users():
+def list_users() -> None:
+    """
+    Exibe os usuários cadastrados no banco local.
+    """
     db = load_db()
+
     if not db:
-        print("Nenhum usuário registrado.")
+        print("Nenhum usuário cadastrado.")
         return
 
-    print("\nUsuários cadastrados:")
-    for u in db:
-        print(" -", u)
+    print("\n--- Usuários registrados ---")
+    for user in db:
+        print(f" • {user}")
     print()
 
 
-# ==============================
-# Iniciar cliente
-# ==============================
-def run_client():
-    ROOT = os.path.dirname(os.path.abspath(__file__))
-    subprocess.call(["python", os.path.join(ROOT, "client", "client.py")])
+# --- Client Runner ---
+
+def run_client() -> None:
+    """
+    Executa o cliente em um subprocesso.
+    """
+    try:
+        subprocess.call(["python", "-m", "client.client"])
+    except FileNotFoundError:
+        print("client.py não encontrado.")
+    except Exception as exc:
+        print("Erro ao iniciar cliente:", exc)
 
 
-# ==============================
-# Menu principal
-# ==============================
-def main_menu():
+# --- Menu Principal ---
+
+def main_menu() -> None:
+    """
+    Exibe o menu principal e controla as ações do usuário.
+    """
     while True:
         print("\n===== WHATSCHAT - MENU PRINCIPAL =====")
         print("1 - Registrar usuário")
-        print("2 - Listar usuários cadastrados")
-        print("3 - Iniciar cliente")
+        print("2 - Listar usuários")
+        print("3 - Iniciar chat")
         print("4 - Sair")
-        
+
         opc = input("Escolha: ").strip()
 
         if opc == "1":
@@ -89,7 +124,7 @@ def main_menu():
             print("Saindo...")
             break
         else:
-            print("Opção inválida!")
+            print("Opção inválida.")
 
 
 if __name__ == "__main__":
